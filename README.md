@@ -3,3 +3,13 @@ This is a demodulator multimode AM SSB CW for quadrature input signal (es. taken
 
 The project is work in progress.
 vy 73 de Giuseppe, IK8YFW (@) libero.it
+
+
+
+Pico Pi demodulator (SSB CW AM ) and ElkSDR UNO Receiver as stand alone SDR Receiver.
+
+Video :
+
+https://youtu.be/pxO1taTrk5k
+
+https://youtube.com/shorts/FqbgBwjhAKQ
