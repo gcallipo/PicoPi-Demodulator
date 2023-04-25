@@ -27,7 +27,7 @@
 #define MAG(i,q)  (ABS(i)>ABS(q) ? ABS(i)+((3*ABS(q))>>3) : ABS(q)+((3*ABS(i))>>3))
 
 // GPIO I2S pin numbers
-// TO connect the MAX98357A power Amplifier
+// TO connect the PCM5102A DAC
 #define I2S_BCLK 15
 #define I2S_WS (I2S_BCLK+1)
 #define I2S_DOUT 17
@@ -37,9 +37,7 @@ const int sampleRate = 8000;
 I2S i2s(OUTPUT);
 
 // Create input on Adc 0 - GPIO26 & Adc 1 - GPIO27
-//ADCInput adcIn(26,27);
 ADCInput adcIn(A0,A1);
-
 
 // controll button to select filter
 #define PIN_BUTTON_FL 14
@@ -60,26 +58,28 @@ ADCInput adcIn(A0,A1);
 // The over range bling at about 150 mV of input peak signal
 // (300 mV pp) this is a good safe guard for 
 // the Pico ADC.
-#define OVER_RANGE 200
+#define OVER_RANGE 50
 
 // define min and max gain for output amplification
-#define MIN_GAIN   20   // suitable for headphone
-#define MAX_GAIN   100  // suitable for speaker
+#define MIN_GAIN   60   // suitable for AM
+#define MAX_GAIN   250  // suitable for NARROW MODES
 
 // globals
-volatile uint8_t     decimator_ct = 0;
+volatile uint8_t     decimator_ct = 0,over_on =1;
 volatile uint8_t     decimator_factor = 2;
 volatile int16_t     avg, sum, out_sample = 0;
+volatile int32_t adc_result_bias_i = (ADC_BIAS << AVG_BIAS_SHIFT);
+volatile int32_t adc_result_bias_q = (ADC_BIAS << AVG_BIAS_SHIFT);
 
 AUDIOFilter   flt0;   // AM/SSB filter
 AVGFilter     flt2;   // AVG  filter
+AVGFilter     flt3;   // AVG  filter
 
 HP45Filter    fltHP;
 HM45Filter    fltHM;
 
-Dec8KFilter   fltDec_I;
-Dec8KFilter   fltDec_Q;
-Dec8KFilter   fltDec;
+AUDIOFilter   fltDec_I1,fltDec_Q1;
+Dec8KFilter   fltInt;
 
 int           passInput = 0;
 uint8_t       filterMode = 0;
@@ -87,28 +87,22 @@ uint8_t       demodMode = 0;
 uint8_t       nrMode = 0;
 int16_t       outSample = 0;
 int16_t       outSample_8k = 0;
-int16_t       gainAudio = MIN_GAIN;
-int16_t       gainFilter = 2;
-int16_t       gainDec = 2;
+int16_t       gainAudio = 0;
+int16_t       gainFilter = 0;
+int16_t       gainDec = 0;
 
-// Check if need to boost the audio
-// For safe reasons the value will be
-// only at startup.
-void initAudioGain(void) {
-
-  // set the default audioGain for headphones
-  gainAudio = MIN_GAIN;
-  if (digitalRead(PIN_BUTTON_AUDIO_GAIN) == LOW) {
-   
-    gainAudio = MAX_GAIN;
-    gainFilter = 20;
-    gainDec = 6;
-  }
-
+// At the moment no AGC, then we set fixed gain for modes
+void setMaxGAIN(){
+  gainAudio = MAX_GAIN;
+  gainDec = 5;
+  gainFilter = 15; 
 }
 
-
-   
+void setMinGAIN(){
+  gainAudio = MIN_GAIN;
+  gainDec = 3;
+  gainFilter = 5;
+}   
 // continuous loop running for audio processing
 void audioIO_loop(void)
 {
@@ -133,31 +127,41 @@ void audioIO_loop(void)
  while(1){
   while (adcIn.available() > 0) {
 
-    newSample_I = adcIn.read();
-    newSample_I = newSample_I - ADC_BIAS - ADC_BIAS_SHIFT;
-
+    // Get fresh samples 
+    newSample_I = adcIn.read();  
     newSample_Q = adcIn.read();
-    newSample_Q = newSample_Q - ADC_BIAS - ADC_BIAS_SHIFT;
+   
+    // Remove ADC bias DC component from samples with long average
+    adc_result_bias_i += (int16_t)(newSample_I - (adc_result_bias_i >> AVG_BIAS_SHIFT));
+    adc_result_bias_q += (int16_t)(newSample_Q - (adc_result_bias_q >> AVG_BIAS_SHIFT));
+    newSample_I -= (adc_result_bias_i>>AVG_BIAS_SHIFT);
+    newSample_Q -= (adc_result_bias_q>>AVG_BIAS_SHIFT);
 
-
-    /* Blink the builtin LED if the input signal go over range */
-    if (newSample_I > OVER_RANGE) {
-      gpio_put(LED_PIN, 1);
-    } else {
-      gpio_put(LED_PIN, 0);
+      /* Blink the builtin LED if the input signal go over range */
+    if (over_on==1){   
+      if (newSample_I > OVER_RANGE) {
+        gpio_put(LED_PIN, 1);
+      } else {
+        gpio_put(LED_PIN, 0);
+      }
     }
+
     newSample_I = newSample_I * gainAudio;
     newSample_Q = newSample_Q * gainAudio;
 
-    Dec8KFilter_put(&fltDec_I, newSample_I);
-    newSample_I = Dec8KFilter_get(&fltDec_I)*gainDec;
+    AUDIOFilter_put(&fltDec_I1, newSample_I);
+    newSample_I = AUDIOFilter_get(&fltDec_I1)*gainDec;
         
-    Dec8KFilter_put(&fltDec_Q, newSample_Q);
-    newSample_Q = Dec8KFilter_get(&fltDec_Q)*gainDec;
+    AUDIOFilter_put(&fltDec_Q1, newSample_Q);
+    newSample_Q = AUDIOFilter_get(&fltDec_Q1)*gainDec;
 
-    rawSample_I = newSample_I;
-    rawSample_Q = newSample_Q;
+    // apply the NR.
+    AVGFilter_put(&flt2, newSample_I);
+    newSample_I = AVGFilter_get(&flt2);
 
+    // apply the NR.
+    AVGFilter_put(&flt3, newSample_Q);
+    newSample_Q = AVGFilter_get(&flt3);
     
     if (demodMode != 3) { 
         decimator_ct ++;
@@ -183,25 +187,22 @@ void audioIO_loop(void)
             if (demodMode == 2) {   // CW
                 outSample_8k = newSample_I+newSample_Q;
             }
-          
-        
-            // apply the NR.
-            AVGFilter_put(&flt2, outSample_8k);
-            outSample_8k = AVGFilter_get(&flt2);
-        
+                  
             // Apply the main output filter
             AUDIOFilter_put(&flt0, outSample_8k);
-            outSample = AUDIOFilter_get(&flt0); 
-    
+            outSample = AUDIOFilter_get(&flt0);     
         }
     }
     else
     {   // AM
-        outSample = MAG(rawSample_I,rawSample_Q);
+        outSample = MAG(newSample_I,newSample_Q);
+        //outSample = sqrt((newSample_I*newSample_I) + (newSample_Q*newSample_Q));
     }
 
-    Dec8KFilter_put(&fltDec, outSample);
-    outSample = Dec8KFilter_get(&fltDec);
+  
+    // Post decimation (interpolation) filter
+    Dec8KFilter_put(&fltInt, outSample);
+    outSample = Dec8KFilter_get(&fltInt);
   
     outSample2= outSample * gainFilter;
 
@@ -216,93 +217,6 @@ void audioIO_loop(void)
 
 }
 
-
-   
-// continuous loop running for audio processing
-void audioIO_loop_ok(void)
-{
-  int16_t newSample_I = 0;
-  int16_t newSample_Q = 0;
-  int16_t outSample1= 0;
-  int16_t outSample2= 0;
-
-  // For debug only
-#ifdef DEBUG_SERIAL
-  int  nn = micros();
-#endif
-
-
-#ifdef DEBUG_SERIAL
-  //char buffer[40];
-  //sprintf(buffer, "Value 0 %d ", cap_buf[0]);
-  //Serial.println(buffer);
-#endif
- while(1){
-  while (adcIn.available() > 0) {
-
-    newSample_I = adcIn.read();
-    newSample_I = newSample_I - ADC_BIAS - ADC_BIAS_SHIFT;
-
-    newSample_Q = adcIn.read();
-    newSample_Q = newSample_Q - ADC_BIAS - ADC_BIAS_SHIFT;
-
-
-    /* Blink the builtin LED if the input signal go over range */
-    if (newSample_I > OVER_RANGE) {
-      gpio_put(LED_PIN, 1);
-    } else {
-      gpio_put(LED_PIN, 0);
-    }
-    newSample_I = newSample_I * gainAudio;
-    newSample_Q = newSample_Q * gainAudio;
-
-    HP45Filter_put(&fltHP, newSample_I);
-    newSample_I = HP45Filter_get(&fltHP);
-
-    HM45Filter_put(&fltHM, newSample_Q);
-    newSample_Q = HM45Filter_get(&fltHM);
-
-   
-    // Demodulate 
-    if (demodMode == 0) {   // LSB
-       outSample_8k = newSample_I-newSample_Q;
-    }
-    else
-    if (demodMode == 1) {   // USB
-        outSample_8k = newSample_I+newSample_Q;
-    }
-    else
-    if (demodMode == 2) {   // CW
-        outSample_8k = newSample_I+newSample_Q;
-    }
-    else
-    if (demodMode == 3) {   // AM
-        outSample_8k = MAG(newSample_I,newSample_Q);
-    }
-
-    // apply the NR.
-    AVGFilter_put(&flt2, outSample_8k);
-    outSample_8k = AVGFilter_get(&flt2);
-   
-    // Apply the main output filter
-    AUDIOFilter_put(&flt0, outSample_8k);
-    outSample = AUDIOFilter_get(&flt0);
-
-    Dec8KFilter_put(&fltDec, outSample);
-    outSample = Dec8KFilter_get(&fltDec);
-  
-    outSample2= outSample * gainFilter;
-
-    // write the same sample twice, once for left and once for the right channel
-    if (i2s.availableForWrite()>0){
-      i2s.write(outSample2);
-      i2s.write(outSample2);
-    }
-   }
-
-  };
-
-}
 
 uint8_t val, old_val = HIGH;
 uint8_t val1, old_val1 = HIGH;
@@ -310,70 +224,106 @@ uint8_t val1, old_val1 = HIGH;
 // check commands on core 1
 void core1_commands_check() {
   int max_modes =3;
-  if (gainAudio == MAX_GAIN){
-    max_modes =2; // skip AM
-  }
+  //if (gainAudio == MAX_GAIN){
+  //  max_modes =2; // skip AM
+  //}
 
   // run on loop
   while (1) {
-
+    
+    //if the push gain is selected the buttons will allow to change it
+    int pushGain = digitalRead(PIN_BUTTON_AUDIO_GAIN);
+      
     // debounche
     val = digitalRead(PIN_BUTTON_FL);
+    if (val == LOW) { gpio_put(LED_PIN, 1); over_on=0; }
     if (val != old_val) {
       old_val = val;
 
       if (val == LOW) {
+   
+        if (pushGain == LOW){
+          if (demodMode==3){
+           gainAudio +=20;
+          }else{
+            gainAudio +=50;
+          }
+        }else{
 
-        // Roll the filter selection
-        if (demodMode == max_modes)
-          demodMode = 0;
-        else
-          demodMode++;
-
-        // Demodulator
-        if (demodMode == 0 || demodMode == 1){ // SSB
-          AUDIOFilter_init(&flt0, ID_BANDPASS, W_HAMMING, 200, 3000, sampleRate);
-          //gainFilter=10;
-        }
-        else if (demodMode == 2){ // CW 500hz
-          AUDIOFilter_init(&flt0, ID_BANDPASS, W_BLACKMAN, 450, 950, sampleRate);
-          //gainFilter=10;
-        }
-        else if (demodMode == 3){ // AM
-          //AUDIOFilter_init(&flt0, ID_LOWPASS, W_HAMMING, 4000, 0, sampleRate);
-          //gainFilter=10;
-        }
+            // Roll the filter selection
+            if (demodMode == max_modes)
+              demodMode = 0;
+            else
+              demodMode++;
+    
+            // Demodulator
+            if (demodMode == 0 || demodMode == 1){ // SSB
+              setMaxGAIN();
+              AUDIOFilter_init(&flt0, ID_BANDPASS, W_HAMMING, 200, 3000, sampleRate);
+              AUDIOFilter_init(&fltDec_I1, ID_BANDPASS, W_HAMMING, 200.0, 5000.0, sampleRate*2);
+              AUDIOFilter_init(&fltDec_Q1, ID_BANDPASS, W_HAMMING, 200.0, 5000.0, sampleRate*2);
+              
+            }
+            else if (demodMode == 2){ // CW 500hz
+              setMaxGAIN();
+              AUDIOFilter_init(&flt0, ID_BANDPASS, W_BLACKMAN, 400, 1000, sampleRate);
+              AUDIOFilter_init(&fltDec_I1, ID_BANDPASS, W_HAMMING, 300.0, 2400.0, sampleRate*2);
+              AUDIOFilter_init(&fltDec_Q1, ID_BANDPASS, W_HAMMING, 300.0, 2400.0, sampleRate*2);
+              // additional gain
+              gainFilter+=5;
+            }
+            else if (demodMode == 3){ // AM
+              setMinGAIN();
+              AUDIOFilter_init(&fltDec_I1, ID_BANDPASS, W_HAMMING, 300.0, 4500.0, sampleRate*2);
+              AUDIOFilter_init(&fltDec_Q1, ID_BANDPASS, W_HAMMING, 300.0, 4500.0, sampleRate*2);
+            }
+          }
+         
       }
     }
 
     // debounche
     val1 = digitalRead(PIN_BUTTON_NR);
+    if (val1 == LOW) { gpio_put(LED_PIN, 1); over_on=0; }
     if (val1 != old_val1) {
       old_val1 = val1;
 
       if (val1 == LOW) {
+         if (pushGain == LOW){
+           if (demodMode==3){
+            gainAudio =gainAudio>0?gainAudio-20:0;
+          }else{
+            gainAudio =gainAudio>0?gainAudio-50:0;
+          }
+        }else{
 
-        // Roll the filter selection
-        if (nrMode == 3)
-          nrMode = 0;
-        else
-          nrMode++;
-
-        // Noise Reduction stage
-        if (nrMode == 0) {
-          AVGFilter_init(&flt2, 4);
-        } else if (nrMode == 1) {
-          AVGFilter_init(&flt2, 7);
-        } else if (nrMode == 2) {
-          AVGFilter_init(&flt2, 10);
-        } else if (nrMode == 3) {
-          AVGFilter_init(&flt2, 15);
+            // Roll the filter selection
+            if (nrMode == 3)
+              nrMode = 0;
+            else
+              nrMode++;
+    
+            // Noise Reduction stage
+            if (nrMode == 0) {
+              AVGFilter_init(&flt2, 3);
+              AVGFilter_init(&flt3, 3);
+            } else if (nrMode == 1) {
+              AVGFilter_init(&flt2, 6);
+              AVGFilter_init(&flt3, 6);
+            } else if (nrMode == 2) {
+              AVGFilter_init(&flt2, 10);
+              AVGFilter_init(&flt3, 10);
+            } else if (nrMode == 3) {
+              AVGFilter_init(&flt2, 15);
+              AVGFilter_init(&flt3, 15);
+            }
         }
-
       }
     }
 
     sleep_ms(500);
+    gpio_put(LED_PIN, 0);
+    over_on=1;
   }
 }
 
@@ -381,11 +331,16 @@ void core1_commands_check() {
 // general setup
 void audioIO_setup() {
 
+  
+  // Init all Filters
   AUDIOFilter_init(&flt0, ID_BANDPASS, W_BLACKMAN, 200.0, 3000.0, sampleRate);
-  AVGFilter_init(&flt2, 4);
-  Dec8KFilter_init(&fltDec);
-  Dec8KFilter_init(&fltDec_I);
-  Dec8KFilter_init(&fltDec_Q);
+  AVGFilter_init(&flt2, 2);
+  AVGFilter_init(&flt3, 2);
+
+  
+  Dec8KFilter_init(&fltInt);
+  AUDIOFilter_init(&fltDec_I1, ID_BANDPASS, W_HAMMING, 200.0, 5000.0, sampleRate*2);
+  AUDIOFilter_init(&fltDec_Q1, ID_BANDPASS, W_HAMMING, 200.0, 5000.0, sampleRate*2);
   
   HP45Filter_init(&fltHP);
   HM45Filter_init(&fltHM);
@@ -422,11 +377,11 @@ void audioIO_setup() {
   pinMode(PIN_BUTTON_AUDIO_GAIN, INPUT_PULLUP);
 
   // set the maximum audio gain
-  initAudioGain();
+  setMaxGAIN();
 
   // pushbutton to select the filter on core 1
   multicore_launch_core1(core1_commands_check);
-  sleep_ms(1400);
+  sleep_ms(2000);
 
   // start DSP processor
   audioIO_loop();
