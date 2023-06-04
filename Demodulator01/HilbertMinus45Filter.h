@@ -1,12 +1,18 @@
+ /*
+ * This is part of
+ * Demodulator Multimode IQ (AM SSB CW) for Shorthwave Receiver
+ * 
+ * 
+ * Created: 2023
+ * Author: Giuseppe Callipo - IK8YFW
+ * https://github.com/ik8yfw
+ * 
+*/
+
 #ifndef HM45FILTER_H_
 #define HM45FILTER_H_
 
-/*
-
-
-*/
-
-#define HM45FILTER_TAP_NUM 21
+#define HM45FILTER_TAP_NUM 33
 
 typedef struct {
   int history[HM45FILTER_TAP_NUM];

@@ -1,16 +1,5 @@
 
 /************************************************************* 
- *  SimpleAudioFilter02.ino
- * Audio Filter DSP for Shorthwave Receiver
- * Functions:
- * 0. Audio passthrough 
- * 1. DNR Average denoise 
- * 2. DNR + DNF Average Denoise + LMS Filter (NB & Beat eliminator)
- * 3. AM/SSB filter 6000 kHz + DNR low level
- * 4. SSB filter    3000 kHz + DNR medium level
- * 5. CW  filter    700  Hz  + DNR low level
- * 
- * 
  * 
  * Created: Nov 2022
  * Author: Giuseppe Callipo - IK8YFW

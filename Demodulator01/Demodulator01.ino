@@ -10,6 +10,9 @@
  * License: Creative Common with attribution 
  * 
  * Last update: 09/04/2023
+ * 
+ * 01.05.2023 test filters
+ * 04.06.2023 refactoring Demodulator chain
  */
 
  

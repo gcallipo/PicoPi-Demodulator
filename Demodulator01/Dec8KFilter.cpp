@@ -1,3 +1,13 @@
+/*
+ * This is part of
+ * Demodulator Multimode IQ (AM SSB CW) for Shorthwave Receiver
+ * 
+ * 
+ * Created: 2023
+ * Author: Giuseppe Callipo - IK8YFW
+ * https://github.com/ik8yfw
+ * 
+*/
 #include "Dec8KFilter.h"
 
 static int filter_taps[DEC8KFILTER_TAP_NUM] = {
