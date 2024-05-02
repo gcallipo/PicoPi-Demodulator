@@ -6,6 +6,8 @@ vy 73 de Giuseppe, IK8YFW (@) libero.it
 
 [13.08.2023] - Added new schematic. Apply a good I/Q audio level from an SDR receiver. For the ElkSDR-UNO you can increase the input audio level in using a small pre amplifier.
 
+[02.05.2024] - Added the IowaHills program used to calculate the Hilbert Filters.
+
 Pico Pi demodulator (SSB CW AM ) and ElkSDR UNO Receiver as stand alone SDR Receiver.
 
 Video :
