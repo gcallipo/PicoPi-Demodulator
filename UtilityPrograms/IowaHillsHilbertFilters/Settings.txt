@@ -1,0 +1,8 @@
+1 , Version 3.0 , Version String
+10 , 8000 , Sampling Frequency
+12 , 20 , Plot Threshold
+30 , 0 , Mouse Read Out Menu
+50 ,  , Previous File
+50 ,  , Previous File
+50 ,  , Previous File
+50 ,  , Previous File
