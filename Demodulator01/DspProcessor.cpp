@@ -21,6 +21,8 @@
 #include "pico/multicore.h"
 #include "dynamicFilters.h"
 
+#include "Panadapter.h"
+
 #include <I2S.h>
 #include <ADCInput.h>
 
@@ -49,7 +51,9 @@ ADCInput adcIn(A0,A1);
 #define PIN_BUTTON_FL 14
 // controll button to select nr
 #define PIN_BUTTON_NR 13
-// control to se the audio gain
+// control button for the audio gain 
+// Use this as Alternate function: keep pressed key 11 and 
+// click 13 or 14 to decrease or increase input gain 
 #define PIN_BUTTON_AUDIO_GAIN 11
 
 // Over range onboard led
@@ -67,8 +71,8 @@ ADCInput adcIn(A0,A1);
 #define OVER_RANGE 150
 
 // define min and max gain for output amplification
-#define MIN_GAIN   30   // suitable for AM
-#define MAX_GAIN   100  // suitable for NARROW MODES
+#define MIN_GAIN  30// 30   // suitable for AM
+#define MAX_GAIN  80// 100  // suitable for NARROW MODES
 
 // globals
 volatile uint8_t     decimator_ct = 0,over_on =1;
@@ -100,15 +104,18 @@ int16_t       gainFilter = 0;
 int16_t       gainDec = 0;
 
 
-// agc
-int16_t AGC_TOP    = 150;
+// Agc
+int16_t AGC_TOP    = 200;
 volatile uint32_t s_rssi;
 volatile int32_t rx_agc = 1;
+
+// Panadapter input
+int I_IN; int Q_IN; int avail_val=0;
 
 
 // At the moment no AGC, then we set fixed gain for modes
 void setMaxGAIN(){
-  AGC_TOP    = 150;
+  AGC_TOP    = 200;
   gainAudio = MAX_GAIN;
   gainDec=2;
   gainFilter = 10; 
@@ -116,7 +123,7 @@ void setMaxGAIN(){
 
 // Set minimum Gain for AM Recetion
 void setMinGAIN(){
-  AGC_TOP    = 150;
+  AGC_TOP    = 200;
   gainAudio = MIN_GAIN;
   gainDec=2;
   gainFilter = 5;
@@ -148,6 +155,8 @@ void audioIO_loop(void)
     // Get fresh samples 
     newSample_I = adcIn.read();  
     newSample_Q = adcIn.read();
+
+   // update_values(newSample_I, newSample_Q);
    
     // Remove ADC bias DC component from samples with long average
     adc_result_bias_i += (int16_t)(newSample_I - (adc_result_bias_i >> AVG_BIAS_SHIFT));
@@ -171,7 +180,12 @@ void audioIO_loop(void)
     if (rx_agc==0) rx_agc=1;
 
     newSample_I = newSample_I * gainAudio*rx_agc;
-    newSample_Q = newSample_Q * gainAudio*rx_agc;
+    newSample_Q = newSample_Q * gainAudio*rx_agc; 
+
+       // save acquired samples for post panadapter show
+    I_IN = newSample_I/700; 
+    Q_IN = newSample_Q/700;
+    avail_val=1;
 
     // Cut at 8KHz for future decimation and low noise
      Dec8KFilter_put(&fltDec_I, newSample_I);
@@ -277,11 +291,7 @@ void core1_commands_check() {
       if (val == LOW) {
    
         if (pushGain == LOW){
-          if (demodMode==3){
-           gainAudio +=5;
-          }else{
-            gainAudio +=5;
-          }
+          gainAudio +=10;
         }else{
 
             // Roll the filter selection
@@ -289,7 +299,9 @@ void core1_commands_check() {
               demodMode = 0;
             else
               demodMode++;
-    
+
+            setPan_mod(demodMode);   
+            
             // Demodulator
             if (demodMode == 0 || demodMode == 1){ // SSB
               setMaxGAIN();
@@ -317,11 +329,7 @@ void core1_commands_check() {
 
       if (val1 == LOW) {
          if (pushGain == LOW){
-           if (demodMode==3){
             gainAudio =gainAudio>0?gainAudio-10:0;
-          }else{
-            gainAudio =gainAudio>0?gainAudio-10:0;
-          }
         }else{
 
             // Roll the filter selection
@@ -334,29 +342,46 @@ void core1_commands_check() {
             if (nrMode == 0) {
               AVGFilter_init(&flt2, 3);
               AVGFilter_init(&flt3, 3);
+              setPan_nr(0);
             } else if (nrMode == 1) {
               AVGFilter_init(&flt2, 6);
               AVGFilter_init(&flt3, 6);
+              setPan_nr(1);
             } else if (nrMode == 2) {
               AVGFilter_init(&flt2, 10);
               AVGFilter_init(&flt3, 10);
+              setPan_nr(2);
             } else if (nrMode == 3) {
               AVGFilter_init(&flt2, 15);
               AVGFilter_init(&flt3, 15);
+              setPan_nr(3);
             }
         }
       }
     }
 
-    sleep_ms(500);
-    gpio_put(LED_PIN, 0);
-    over_on=1;
+    if (over_on==0){
+       sleep_ms(500);
+       gpio_put(LED_PIN, 0);
+       over_on=1;
+    }
+
+    //sleep_ms(1);
+    // Update the Panadapter with a new samples ...
+    //update_loop(I_IN/100,Q_IN/100);
+    if ( avail_val==1){
+        update_loop(I_IN,Q_IN);
+        avail_val =0;
+    }
   }
 }
 
 
 // general setup
 void audioIO_setup() {
+
+  // setup the panadapter
+  panadapter_setup();
 
   // Init all Filters
   // Narrow Modes filters
@@ -416,7 +441,7 @@ void audioIO_setup() {
   // pushbutton to select the filter on core 1
   multicore_launch_core1(core1_commands_check);
   sleep_ms(2000);
-
+   
   // start DSP processor
   audioIO_loop();
 
