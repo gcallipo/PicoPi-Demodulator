@@ -34,6 +34,10 @@ HISTORY (recent upper):
 
 [13.08.2023] - Added new schematic. Apply a good I/Q audio level from an SDR receiver. For the ElkSDR-UNO you can increase the input audio level in using a small pre amplifier.
 
+NOTE: The project was build with Arduino IDE v. 1.8.19 and v. 2.x.x with the earlephilhower/arduino-pico plugin (compiled with the v. 4.0.x)
+      you need also some additional libraries: 
+      https://www.arduino.cc/reference/en/libraries/arduinofft/     (compiled with thw v. 2.0)
+      https://github.com/olikraus/U8g2_Arduino                      (compiled with the v. 2.35.30)
 
 Credits: Thank you to JR3XNW for the code related the band scope waterfall.
 
