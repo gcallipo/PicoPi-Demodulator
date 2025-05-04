@@ -4,6 +4,9 @@ This is a demodulator multimode AM SSB CW for quadrature input signal (es. taken
 The project is work in progress.
 vy 73 de Giuseppe, IK8YFW (@) libero.it
 
+>> ATTENTION PLEASE: The project works correctly with Arduino IDE 2.3.x but currently requires the earlephilhower/arduino-pico plugin version 4.3.1, newer versions of the plugin are currently not supported. Thanks for your understanding.
+
+
 Video :
 
 https://youtu.be/pxO1taTrk5k
